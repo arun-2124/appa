@@ -1,0 +1,4 @@
+0 round
+1 oval
+2 capsule
+3 oblong
