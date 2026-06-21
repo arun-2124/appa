@@ -1,4 +1,3 @@
-
 import 'dart:math';
 import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
@@ -20,9 +19,11 @@ class InferenceService {
     if (_ready) return;
 
     try {
-      // Load your trained model
+      // ✅ FIX: filename now matches the asset declared in pubspec.yaml
+      // (it was 'model.tflite' here but 'tablet_classifier.tflite' there,
+      // which is why loading always failed).
       _interpreter = await Interpreter.fromAsset(
-        'assets/models/model.tflite',
+        'assets/models/tablet_classifier.tflite',
         options: InterpreterOptions()..threads = 2,
       );
 

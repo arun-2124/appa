@@ -9,7 +9,10 @@
 //                label: 'Ask AI',
 //              )
 //           Then add AiChatScreen(userId: userId, medicines: []) to screens list
-//        4. Replace 'YOUR_ANTHROPIC_API_KEY' with your real key
+//
+//        4. ⚠️ REPLACE THE LINE BELOW with your real Anthropic API key
+//           Get one at: https://console.anthropic.com/settings/keys
+//           It will look like: sk-ant-api03-XXXXXXXXXXXX...
 // ─────────────────────────────────────────────────────────────────────────────
 
 import 'dart:convert';
@@ -25,7 +28,13 @@ const Color kBackground   = Color(0xFFFAF7FF);
 const Color kSurface      = Color(0xFFFFFFFF);
 const Color kDanger       = Color(0xFFC62828);
 
+// ⚠️ PASTE YOUR REAL KEY HERE — replace the placeholder text below.
+// It must start with "sk-ant-" — if it still says YOUR_ANTHROPIC_API_KEY,
+// every chat message will fail.
 const String _apiKey = 'YOUR_ANTHROPIC_API_KEY';
+
+bool get _isApiKeyConfigured =>
+    _apiKey.isNotEmpty && _apiKey != 'YOUR_ANTHROPIC_API_KEY';
 
 class AiChatScreen extends StatefulWidget {
   final String        userId;
@@ -75,6 +84,22 @@ Rules:
     final text = _ctrl.text.trim();
     if (text.isEmpty || _loading) return;
 
+    // ✅ Check the key BEFORE making a network call, with a clear message.
+    if (!_isApiKeyConfigured) {
+      setState(() {
+        _messages.add(_Msg(text: text, isUser: true));
+        _messages.add(_Msg(
+          text: 'AI chat is not set up yet — the API key is missing. '
+              '(Developer: replace _apiKey in ai_chat_screen.dart)',
+          isUser : false,
+          isError: true,
+        ));
+      });
+      _ctrl.clear();
+      _scrollToBottom();
+      return;
+    }
+
     _ctrl.clear();
     setState(() {
       _messages.add(_Msg(text: text, isUser: true));
@@ -85,7 +110,7 @@ Rules:
     try {
       // Build conversation history for Claude
       final history = _messages
-          .where((m) => !m.isLoading)
+          .where((m) => !m.isLoading && !m.isError)
           .map((m) => {
                 'role'   : m.isUser ? 'user' : 'assistant',
                 'content': m.text,
@@ -108,7 +133,13 @@ Rules:
       ).timeout(const Duration(seconds: 30));
 
       if (response.statusCode != 200) {
-        throw Exception('API error: ${response.statusCode}');
+        // ✅ Surface the real status + body instead of a generic message.
+        String detail = response.body;
+        try {
+          final errJson = jsonDecode(response.body);
+          detail = errJson['error']?['message']?.toString() ?? response.body;
+        } catch (_) {}
+        throw Exception('API error ${response.statusCode}: $detail');
       }
 
       final data  = jsonDecode(response.body);
@@ -121,10 +152,22 @@ Rules:
         _messages.add(_Msg(text: reply, isUser: false));
         _loading = false;
       });
-    } catch (e) {
+    } on http.ClientException catch (e) {
+      // Genuine network-layer failure (no internet, DNS, etc.)
       setState(() {
         _messages.add(_Msg(
-          text   : 'Sorry, I could not connect. Please check your internet.',
+          text   : 'Could not reach the server. Please check your internet connection.\n($e)',
+          isUser : false,
+          isError: true,
+        ));
+        _loading = false;
+      });
+    } catch (e) {
+      // ✅ Show the actual error (key invalid, rate limit, bad request, etc.)
+      // instead of always blaming "internet".
+      setState(() {
+        _messages.add(_Msg(
+          text   : 'Sorry, something went wrong: $e',
           isUser : false,
           isError: true,
         ));

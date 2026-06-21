@@ -1,4 +1,3 @@
-
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -9,30 +8,15 @@ import 'services/firestore_service.dart';
 import 'services/notification_service.dart';
 import 'models/medicine_model.dart';
 import 'screens/history_screen.dart';
-import 'screens/analytics_screen.dart';       
+import 'screens/analytics_screen.dart';        // ✅ fixed — reads correct Firestore path
 import 'screens/settings_screen.dart';
-import 'screens/caretaker_screen.dart';       
-import 'screens/prescription_ocr_screen.dart'; 
-import 'screens/medicine_verification_screen.dart'; 
+import 'screens/caretaker_screen.dart';
+import 'screens/prescription_ocr_screen.dart';
+import 'screens/medicine_verification_screen.dart'; // camera check screen
+import 'screens/ai_assistant_screen.dart';          // ✅ Gemini-powered chat
+import 'package:appa/services/inference_service.dart';
 
-
-// =============================================================================
-// SUMMARY OF CHANGES
-// =============================================================================
-//
-// File                         What changed
-// ──────────────────────────── ────────────────────────────────────────────────
-// lib/main.dart                _MainShellState  — 4 screens matching 4 tabs
-// lib/main.dart                AuthWrapper      — inline _getProfile, no missing method
-// lib/main.dart                HomeScreen       — isCaregiverView param added
-// lib/main.dart                HomeScreen AppBar— scan button only for caretaker
-// lib/main.dart (medicine card)— "Verify tablet" button opens Camera 1
-// lib/main.dart imports        — added 4 missing imports
-//
-// =============================================================================
-
-
-// ─── Color tokens ─────────────────────────────────────────────────────────
+// ─── Color tokens (LIGHT) ───────────────────────────────────────────────
 const Color kPrimary       = Color(0xFF6B3FA0);
 const Color kPrimaryLight  = Color(0xFFF0E6FF);
 const Color kAccentAmber   = Color(0xFFEF9F27);
@@ -46,6 +30,91 @@ const Color kBackground    = Color(0xFFFAF7FF);
 const Color kSurface       = Color(0xFFFFFFFF);
 const Color kTextPrimary   = Color(0xFF1A1A2E);
 const Color kTextSecondary = Color(0xFF6B6B80);
+const Color kCardBorder    = Color(0xFFE8E0F0);
+const Color kTakenBorder   = Color(0xFFA5D6A7);
+
+// ─── Color tokens (DARK) ────────────────────────────────────────────────
+const Color kPrimaryDark       = Color(0xFFB28EDB);
+const Color kPrimaryLightDark  = Color(0xFF2A2240);
+const Color kSuccessDark       = Color(0xFF66BB6A);
+const Color kSuccessLightDark  = Color(0xFF1C3320);
+const Color kWarningDark       = Color(0xFFFFB74D);
+const Color kWarningLightDark  = Color(0xFF3A2A12);
+const Color kDangerDark        = Color(0xFFEF5350);
+const Color kDangerLightDark   = Color(0xFF3A1A1A);
+const Color kBackgroundDark    = Color(0xFF14101F);
+const Color kSurfaceDark       = Color(0xFF1E1830);
+const Color kTextPrimaryDark   = Color(0xFFF2EFFA);
+const Color kTextSecondaryDark = Color(0xFFB0A8C2);
+const Color kCardBorderDark    = Color(0xFF332A4A);
+const Color kTakenBorderDark   = Color(0xFF3D6B40);
+
+// ─── Theme-aware color lookup ──────────────────────────────────────────
+class AppColors {
+  static bool _isDark(BuildContext c) =>
+      Theme.of(c).brightness == Brightness.dark;
+
+  static Color primary(BuildContext c) => _isDark(c) ? kPrimaryDark : kPrimary;
+  static Color primaryLight(BuildContext c) =>
+      _isDark(c) ? kPrimaryLightDark : kPrimaryLight;
+  static Color background(BuildContext c) =>
+      _isDark(c) ? kBackgroundDark : kBackground;
+  static Color surface(BuildContext c) => _isDark(c) ? kSurfaceDark : kSurface;
+  static Color textPrimary(BuildContext c) =>
+      _isDark(c) ? kTextPrimaryDark : kTextPrimary;
+  static Color textSecondary(BuildContext c) =>
+      _isDark(c) ? kTextSecondaryDark : kTextSecondary;
+  static Color cardBorder(BuildContext c) =>
+      _isDark(c) ? kCardBorderDark : kCardBorder;
+  static Color takenBorder(BuildContext c) =>
+      _isDark(c) ? kTakenBorderDark : kTakenBorder;
+  static Color success(BuildContext c) => _isDark(c) ? kSuccessDark : kSuccess;
+  static Color successLight(BuildContext c) =>
+      _isDark(c) ? kSuccessLightDark : kSuccessLight;
+  static Color warning(BuildContext c) => _isDark(c) ? kWarningDark : kWarning;
+  static Color warningLight(BuildContext c) =>
+      _isDark(c) ? kWarningLightDark : kWarningLight;
+  static Color danger(BuildContext c) => _isDark(c) ? kDangerDark : kDanger;
+  static Color dangerLight(BuildContext c) =>
+      _isDark(c) ? kDangerLightDark : kDangerLight;
+}
+
+// ─── Theme mode controller ──────────────────────────────────────────────
+class ThemeController {
+  static final ValueNotifier<ThemeMode> themeMode =
+      ValueNotifier<ThemeMode>(ThemeMode.system);
+
+  static void cycle() {
+    switch (themeMode.value) {
+      case ThemeMode.light:
+        themeMode.value = ThemeMode.dark;
+        break;
+      case ThemeMode.dark:
+        themeMode.value = ThemeMode.system;
+        break;
+      case ThemeMode.system:
+        themeMode.value = ThemeMode.light;
+        break;
+    }
+  }
+
+  static IconData icon(ThemeMode mode) {
+    switch (mode) {
+      case ThemeMode.light:
+        return Icons.light_mode_outlined;
+      case ThemeMode.dark:
+        return Icons.dark_mode_outlined;
+      case ThemeMode.system:
+        return Icons.brightness_auto_outlined;
+    }
+  }
+}
+
+// ─── Cross-screen refresh signal ────────────────────────────────────────
+class MedicineEvents {
+  static final ValueNotifier<int> refreshTick = ValueNotifier<int>(0);
+  static void notifyChanged() => refreshTick.value++;
+}
 
 // ─── Entry point ──────────────────────────────────────────────────────────
 
@@ -57,6 +126,91 @@ void main() async {
   runApp(const AppaApp());
 }
 
+// ─── Theme builder ───────────────────────────────────────────────────────
+
+ThemeData _buildTheme(Brightness brightness) {
+  final bool dark = brightness == Brightness.dark;
+
+  final Color primary       = dark ? kPrimaryDark : kPrimary;
+  final Color primaryBg     = dark ? kPrimaryLightDark : kPrimaryLight;
+  final Color background    = dark ? kBackgroundDark : kBackground;
+  final Color surface       = dark ? kSurfaceDark : kSurface;
+  final Color textSecondary = dark ? kTextSecondaryDark : kTextSecondary;
+  final Color cardBorder    = dark ? kCardBorderDark : kCardBorder;
+  final Color danger        = dark ? kDangerDark : kDanger;
+
+  return ThemeData(
+    useMaterial3: true,
+    brightness: brightness,
+    colorScheme: ColorScheme.fromSeed(
+      seedColor : kPrimary,
+      primary   : primary,
+      secondary : kAccentAmber,
+      surface   : surface,
+      error     : danger,
+      brightness: brightness,
+    ),
+    scaffoldBackgroundColor: background,
+    appBarTheme: AppBarTheme(
+      backgroundColor: dark ? kSurfaceDark : kPrimary,
+      foregroundColor: dark ? kTextPrimaryDark : Colors.white,
+      centerTitle: true,
+      elevation: 0,
+      titleTextStyle: TextStyle(
+        color: dark ? kTextPrimaryDark : Colors.white,
+        fontSize: 20,
+        fontWeight: FontWeight.w600,
+        letterSpacing: 0.3,
+      ),
+    ),
+    elevatedButtonTheme: ElevatedButtonThemeData(
+      style: ElevatedButton.styleFrom(
+        backgroundColor: primary,
+        foregroundColor: Colors.white,
+        minimumSize: const Size(double.infinity, 52),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(14),
+        ),
+        textStyle: const TextStyle(
+          fontSize: 16,
+          fontWeight: FontWeight.w600,
+          letterSpacing: 0.4,
+        ),
+      ),
+    ),
+    floatingActionButtonTheme: FloatingActionButtonThemeData(
+      backgroundColor: primary,
+      foregroundColor: Colors.white,
+      elevation: 4,
+    ),
+    cardTheme: CardThemeData(
+      color: surface,
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(18),
+        side: BorderSide(color: cardBorder, width: 1),
+      ),
+      margin: const EdgeInsets.only(bottom: 14),
+    ),
+    inputDecorationTheme: InputDecorationTheme(
+      filled: true,
+      fillColor: primaryBg,
+      contentPadding:
+          const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: BorderSide.none,
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: BorderSide(color: primary, width: 1.5),
+      ),
+      labelStyle: TextStyle(color: textSecondary, fontSize: 15),
+      floatingLabelStyle: TextStyle(color: primary, fontSize: 13),
+    ),
+  );
+}
+
 // ─── Root App ─────────────────────────────────────────────────────────────
 
 class AppaApp extends StatelessWidget {
@@ -64,79 +218,18 @@ class AppaApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      debugShowCheckedModeBanner: false,
-      title: 'Appa',
-      theme: ThemeData(
-        useMaterial3: true,
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: kPrimary,
-          primary: kPrimary,
-          secondary: kAccentAmber,
-          surface: kSurface,
-          error: kDanger,
-          brightness: Brightness.light,
-        ),
-        scaffoldBackgroundColor: kBackground,
-        appBarTheme: const AppBarTheme(
-          backgroundColor: kPrimary,
-          foregroundColor: Colors.white,
-          centerTitle: true,
-          elevation: 0,
-          titleTextStyle: TextStyle(
-            color: Colors.white,
-            fontSize: 20,
-            fontWeight: FontWeight.w600,
-            letterSpacing: 0.3,
-          ),
-        ),
-        elevatedButtonTheme: ElevatedButtonThemeData(
-          style: ElevatedButton.styleFrom(
-            backgroundColor: kPrimary,
-            foregroundColor: Colors.white,
-            minimumSize: const Size(double.infinity, 52),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(14),
-            ),
-            textStyle: const TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.w600,
-              letterSpacing: 0.4,
-            ),
-          ),
-        ),
-        floatingActionButtonTheme: const FloatingActionButtonThemeData(
-          backgroundColor: kPrimary,
-          foregroundColor: Colors.white,
-          elevation: 4,
-        ),
-        cardTheme: CardThemeData(
-          color: kSurface,
-          elevation: 0,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(18),
-            side: const BorderSide(color: Color(0xFFE8E0F0), width: 1),
-          ),
-          margin: const EdgeInsets.only(bottom: 14),
-        ),
-        inputDecorationTheme: InputDecorationTheme(
-          filled: true,
-          fillColor: kPrimaryLight,
-          contentPadding:
-              const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
-            borderSide: BorderSide.none,
-          ),
-          focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
-            borderSide: const BorderSide(color: kPrimary, width: 1.5),
-          ),
-          labelStyle: const TextStyle(color: kTextSecondary, fontSize: 15),
-          floatingLabelStyle: const TextStyle(color: kPrimary, fontSize: 13),
-        ),
-      ),
-      home: const AuthWrapper(),
+    return ValueListenableBuilder<ThemeMode>(
+      valueListenable: ThemeController.themeMode,
+      builder: (context, mode, _) {
+        return MaterialApp(
+          debugShowCheckedModeBanner: false,
+          title: 'Appa',
+          themeMode: mode,
+          theme: _buildTheme(Brightness.light),
+          darkTheme: _buildTheme(Brightness.dark),
+          home: const AuthWrapper(),
+        );
+      },
     );
   }
 }
@@ -194,7 +287,6 @@ class AuthWrapper extends StatelessWidget {
 }
 
 // ─── Main Shell ───────────────────────────────────────────────────────────
-// ✅ FIX 2: Added missing MainShell StatefulWidget class
 
 class MainShell extends StatefulWidget {
   final String userId;
@@ -209,13 +301,12 @@ class _MainShellState extends State<MainShell> {
 
   @override
   Widget build(BuildContext context) {
-
-    // ⚠️ ORDER must match the destinations list below — 4 screens, 4 tabs
     final screens = [
-      HomeScreen(userId: widget.userId),          // index 0 → Home
-      HistoryScreen(userId: widget.userId),        // index 1 → History
-      AnalyticsScreen(userId: widget.userId),      // index 2 → Analytics
-      const SettingsScreen(),                      // index 3 → Settings
+      HomeScreen(userId: widget.userId),
+      HistoryScreen(userId: widget.userId),
+      AnalyticsScreen(userId: widget.userId),
+      AiAssistantScreen(userId: widget.userId),
+      const SettingsScreen(),
     ];
 
     return Scaffold(
@@ -226,27 +317,36 @@ class _MainShellState extends State<MainShell> {
       bottomNavigationBar: NavigationBar(
         selectedIndex: _tab,
         onDestinationSelected: (i) => setState(() => _tab = i),
-        backgroundColor: Colors.white,
-        indicatorColor: kPrimaryLight,
-        destinations: const [
+        backgroundColor: AppColors.surface(context),
+        indicatorColor: AppColors.primaryLight(context),
+        destinations: [
           NavigationDestination(
-            icon        : Icon(Icons.home_outlined),
-            selectedIcon: Icon(Icons.home, color: kPrimary),
+            icon        : const Icon(Icons.home_outlined),
+            selectedIcon: Icon(Icons.home, color: AppColors.primary(context)),
             label       : 'Home',
           ),
           NavigationDestination(
-            icon        : Icon(Icons.calendar_today_outlined),
-            selectedIcon: Icon(Icons.calendar_today, color: kPrimary),
+            icon        : const Icon(Icons.calendar_today_outlined),
+            selectedIcon: Icon(Icons.calendar_today,
+                color: AppColors.primary(context)),
             label       : 'History',
           ),
           NavigationDestination(
-            icon        : Icon(Icons.bar_chart_outlined),
-            selectedIcon: Icon(Icons.bar_chart, color: kPrimary),
+            icon        : const Icon(Icons.bar_chart_outlined),
+            selectedIcon: Icon(Icons.bar_chart,
+                color: AppColors.primary(context)),
             label       : 'Analytics',
           ),
           NavigationDestination(
-            icon        : Icon(Icons.settings_outlined),
-            selectedIcon: Icon(Icons.settings, color: kPrimary),
+            icon        : const Icon(Icons.smart_toy_outlined),
+            selectedIcon:
+                Icon(Icons.smart_toy, color: AppColors.primary(context)),
+            label       : 'AI Chat',
+          ),
+          NavigationDestination(
+            icon        : const Icon(Icons.settings_outlined),
+            selectedIcon: Icon(Icons.settings,
+                color: AppColors.primary(context)),
             label       : 'Settings',
           ),
         ],
@@ -356,7 +456,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 padding: const EdgeInsets.only(top: 12),
                 child: Text(
                   _error,
-                  style: const TextStyle(color: kDanger, fontSize: 13),
+                  style: TextStyle(color: AppColors.danger(context), fontSize: 13),
                 ),
               ),
             const SizedBox(height: 32),
@@ -389,16 +489,15 @@ class _LoginScreenState extends State<LoginScreen> {
 }
 
 // ─── Home Screen ──────────────────────────────────────────────────────────
-// ✅ FIX 3: Added isCaregiverView parameter
 
 class HomeScreen extends StatefulWidget {
   final String userId;
-  final bool   isCaregiverView; // true = caretaker sees scan button
+  final bool   isCaregiverView;
 
   const HomeScreen({
     super.key,
     required this.userId,
-    this.isCaregiverView = false, // default false = elder view (Rajamma)
+    this.isCaregiverView = false,
   });
 
   @override
@@ -406,6 +505,15 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
+
+  // ── Daily reset on open ───────────────────────────────────────────────────
+  // Resets taken→false for any medicine last taken on a previous day,
+  // so the "Mark as Taken" button reappears every morning automatically.
+  @override
+  void initState() {
+    super.initState();
+    FirestoreService.resetDailyMedicines(widget.userId);
+  }
 
   // ── Add medicine ──────────────────────────────────────────────────────────
   Future<void> _addMedicine(String name, String dose, String time) async {
@@ -422,6 +530,7 @@ class _HomeScreenState extends State<HomeScreen> {
     try {
       await FirestoreService.addMedicine(medicine);
       await NotificationService.schedule(medicine);
+      MedicineEvents.notifyChanged();
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -446,6 +555,7 @@ class _HomeScreenState extends State<HomeScreen> {
     try {
       await FirestoreService.markAsTaken(
           widget.userId, medicineId, medicineName);
+      MedicineEvents.notifyChanged();
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -470,6 +580,7 @@ class _HomeScreenState extends State<HomeScreen> {
     try {
       await FirestoreService.deleteMedicine(widget.userId, medicineId);
       await NotificationService.cancelByMedicineId(medicineId);
+      MedicineEvents.notifyChanged();
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -489,7 +600,7 @@ class _HomeScreenState extends State<HomeScreen> {
       builder: (ctx) => Dialog(
         shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(24)),
-        backgroundColor: kSurface,
+        backgroundColor: AppColors.surface(ctx),
         child: Padding(
           padding: const EdgeInsets.all(24),
           child: Column(
@@ -502,14 +613,14 @@ class _HomeScreenState extends State<HomeScreen> {
                   Container(
                     padding: const EdgeInsets.all(10),
                     decoration: BoxDecoration(
-                      color: kPrimaryLight,
+                      color: AppColors.primaryLight(ctx),
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: const Text('💊',
                         style: TextStyle(fontSize: 22)),
                   ),
                   const SizedBox(width: 12),
-                  const Column(
+                  Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
@@ -517,12 +628,12 @@ class _HomeScreenState extends State<HomeScreen> {
                         style: TextStyle(
                             fontSize: 20,
                             fontWeight: FontWeight.w700,
-                            color: kTextPrimary),
+                            color: AppColors.textPrimary(ctx)),
                       ),
                       Text(
                         'Fill in the details below',
                         style: TextStyle(
-                            fontSize: 13, color: kTextSecondary),
+                            fontSize: 13, color: AppColors.textSecondary(ctx)),
                       ),
                     ],
                   ),
@@ -533,27 +644,27 @@ class _HomeScreenState extends State<HomeScreen> {
               TextField(
                 controller: nameCtrl,
                 textCapitalization: TextCapitalization.words,
-                decoration: const InputDecoration(
+                decoration: InputDecoration(
                   labelText : 'Medicine name',
                   prefixIcon: Icon(Icons.medication_outlined,
-                      color: kPrimary),
+                      color: AppColors.primary(ctx)),
                 ),
               ),
               const SizedBox(height: 14),
               TextField(
                 controller: doseCtrl,
-                decoration: const InputDecoration(
+                decoration: InputDecoration(
                   labelText : 'Dose  (e.g. 500mg, 1 tablet)',
-                  prefixIcon: Icon(Icons.scale_outlined, color: kPrimary),
+                  prefixIcon: Icon(Icons.scale_outlined, color: AppColors.primary(ctx)),
                 ),
               ),
               const SizedBox(height: 14),
               TextField(
                 controller: timeCtrl,
-                decoration: const InputDecoration(
+                decoration: InputDecoration(
                   labelText : 'Time  (e.g. 08:00)',
                   prefixIcon: Icon(Icons.access_time_rounded,
-                      color: kPrimary),
+                      color: AppColors.primary(ctx)),
                 ),
                 keyboardType: TextInputType.datetime,
               ),
@@ -566,14 +677,14 @@ class _HomeScreenState extends State<HomeScreen> {
                       onPressed: () => Navigator.pop(ctx),
                       style: OutlinedButton.styleFrom(
                         minimumSize: const Size(0, 52),
-                        side : const BorderSide(color: kPrimary),
+                        side : BorderSide(color: AppColors.primary(ctx)),
                         shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(14)),
                       ),
-                      child: const Text(
+                      child: Text(
                         'Cancel',
                         style: TextStyle(
-                            color: kPrimary,
+                            color: AppColors.primary(ctx),
                             fontWeight: FontWeight.w600),
                       ),
                     ),
@@ -612,28 +723,67 @@ class _HomeScreenState extends State<HomeScreen> {
       appBar: AppBar(
         title: const Text('💊 Appa'),
         actions: [
-  if (widget.isCaregiverView)
-    IconButton(
-      icon: const Icon(Icons.document_scanner_outlined),
-      tooltip: 'Scan prescription',
-      onPressed: () => Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (_) =>
-              PrescriptionOcrScreen(userId: widget.userId),
-        ),
+          ValueListenableBuilder<ThemeMode>(
+            valueListenable: ThemeController.themeMode,
+            builder: (context, mode, _) {
+              return IconButton(
+                icon: Icon(ThemeController.icon(mode)),
+                tooltip: 'Toggle theme (${mode.name})',
+                onPressed: ThemeController.cycle,
+              );
+            },
+          ),
+          if (widget.isCaregiverView)
+            IconButton(
+              icon: const Icon(Icons.document_scanner_outlined),
+              tooltip: 'Scan prescription',
+              onPressed: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) =>
+                      PrescriptionOcrScreen(userId: widget.userId),
+                ),
+              ),
+            ),
+        ],
       ),
-    ),
-],
+
+      // ✅ NEW: Two stacked FABs — "Check Medicine" above "Add Medicine"
+      floatingActionButton: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          FloatingActionButton.extended(
+            heroTag: 'fab_check',
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) =>
+                    MedicineVerificationScreen(userId: widget.userId),
+              ),
+            ),
+            backgroundColor: AppColors.surface(context),
+            foregroundColor: AppColors.primary(context),
+            elevation: 2,
+            icon: const Icon(Icons.camera_alt_outlined),
+            label: const Text(
+              'Check Medicine',
+              style: TextStyle(fontWeight: FontWeight.w600),
+            ),
+          ),
+          const SizedBox(height: 12),
+          FloatingActionButton.extended(
+            heroTag: 'fab_add',
+            onPressed: _openAddDialog,
+            icon : const Icon(Icons.add),
+            label: const Text(
+              'Add Medicine',
+              style: TextStyle(fontWeight: FontWeight.w600),
+            ),
+          ),
+        ],
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _openAddDialog,
-        icon : const Icon(Icons.add),
-        label: const Text(
-          'Add Medicine',
-          style: TextStyle(fontWeight: FontWeight.w600),
-        ),
-      ),
+
       body: StreamBuilder<List<Medicine>>(
         stream: FirestoreService.getMedicinesStream(widget.userId),
         builder: (context, snapshot) {
@@ -653,15 +803,15 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ),
               if (medicines.isNotEmpty)
-                const SliverToBoxAdapter(
+                SliverToBoxAdapter(
                   child: Padding(
-                    padding: EdgeInsets.fromLTRB(20, 16, 20, 12),
+                    padding: const EdgeInsets.fromLTRB(20, 16, 20, 12),
                     child: Text(
                       "Today's medicines",
                       style: TextStyle(
                         fontSize  : 20,
                         fontWeight: FontWeight.w700,
-                        color     : kTextPrimary,
+                        color     : AppColors.textPrimary(context),
                       ),
                     ),
                   ),
@@ -720,8 +870,8 @@ class _MedicineCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final bool  isTaken     = medicine.taken;
     final Color borderColor =
-        isTaken ? const Color(0xFFA5D6A7) : const Color(0xFFE8E0F0);
-    final Color iconBg = isTaken ? kSuccessLight : kPrimaryLight;
+        isTaken ? AppColors.takenBorder(context) : AppColors.cardBorder(context);
+    final Color iconBg = isTaken ? AppColors.successLight(context) : AppColors.primaryLight(context);
 
     return Dismissible(
       key      : Key(medicine.id),
@@ -731,10 +881,10 @@ class _MedicineCard extends StatelessWidget {
         padding  : const EdgeInsets.only(right: 20),
         margin   : const EdgeInsets.only(bottom: 14),
         decoration: BoxDecoration(
-          color       : kDangerLight,
+          color       : AppColors.dangerLight(context),
           borderRadius: BorderRadius.circular(18),
         ),
-        child: const Icon(Icons.delete_outline, color: kDanger, size: 28),
+        child: Icon(Icons.delete_outline, color: AppColors.danger(context), size: 28),
       ),
       onDismissed: (_) => onDelete(),
       child: Card(
@@ -769,17 +919,17 @@ class _MedicineCard extends StatelessWidget {
                       children: [
                         Text(
                           medicine.name,
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontSize  : 22,
                             fontWeight: FontWeight.w700,
-                            color     : kTextPrimary,
+                            color     : AppColors.textPrimary(context),
                           ),
                         ),
                         const SizedBox(height: 3),
                         Text(
                           medicine.dose,
-                          style: const TextStyle(
-                              fontSize: 16, color: kTextSecondary),
+                          style: TextStyle(
+                              fontSize: 16, color: AppColors.textSecondary(context)),
                         ),
                       ],
                     ),
@@ -789,7 +939,7 @@ class _MedicineCard extends StatelessWidget {
                     padding: const EdgeInsets.symmetric(
                         horizontal: 10, vertical: 4),
                     decoration: BoxDecoration(
-                      color       : isTaken ? kSuccessLight : kWarningLight,
+                      color       : isTaken ? AppColors.successLight(context) : AppColors.warningLight(context),
                       borderRadius: BorderRadius.circular(20),
                     ),
                     child: Text(
@@ -797,7 +947,7 @@ class _MedicineCard extends StatelessWidget {
                       style: TextStyle(
                         fontSize  : 12,
                         fontWeight: FontWeight.w600,
-                        color     : isTaken ? kSuccess : kWarning,
+                        color     : isTaken ? AppColors.success(context) : AppColors.warning(context),
                       ),
                     ),
                   ),
@@ -805,7 +955,7 @@ class _MedicineCard extends StatelessWidget {
               ),
 
               const SizedBox(height: 14),
-              const Divider(height: 1, color: Color(0xFFF0EAF8)),
+              Divider(height: 1, color: AppColors.cardBorder(context)),
               const SizedBox(height: 12),
 
               // Time chip
@@ -813,20 +963,20 @@ class _MedicineCard extends StatelessWidget {
                 padding: const EdgeInsets.symmetric(
                     horizontal: 10, vertical: 6),
                 decoration: BoxDecoration(
-                  color       : kPrimaryLight,
+                  color       : AppColors.primaryLight(context),
                   borderRadius: BorderRadius.circular(20),
                 ),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    const Icon(Icons.access_time_rounded,
-                        size: 15, color: kPrimary),
+                    Icon(Icons.access_time_rounded,
+                        size: 15, color: AppColors.primary(context)),
                     const SizedBox(width: 5),
                     Text(
                       medicine.time,
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize  : 13,
-                        color     : kPrimary,
+                        color     : AppColors.primary(context),
                         fontWeight: FontWeight.w500,
                       ),
                     ),
@@ -854,22 +1004,22 @@ class _MedicineCard extends StatelessWidget {
                   width : double.infinity,
                   height: 52,
                   decoration: BoxDecoration(
-                    color       : kSuccessLight,
+                    color       : AppColors.successLight(context),
                     borderRadius: BorderRadius.circular(14),
                     border      : Border.all(
-                        color: const Color(0xFFA5D6A7)),
+                        color: AppColors.takenBorder(context)),
                   ),
-                  child: const Row(
+                  child: Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Icon(Icons.check_circle, color: kSuccess, size: 22),
-                      SizedBox(width: 8),
+                      Icon(Icons.check_circle, color: AppColors.success(context), size: 22),
+                      const SizedBox(width: 8),
                       Text(
                         'Taken',
                         style: TextStyle(
                           fontSize  : 16,
                           fontWeight: FontWeight.w600,
-                          color     : kSuccess,
+                          color     : AppColors.success(context),
                         ),
                       ),
                     ],
@@ -915,9 +1065,9 @@ class _HeaderSection extends StatelessWidget {
         totalCount == 0 ? 0.0 : takenCount / totalCount;
 
     return Container(
-      decoration: const BoxDecoration(
-        color: kPrimary,
-        borderRadius: BorderRadius.only(
+      decoration: BoxDecoration(
+        color: AppColors.primary(context),
+        borderRadius: const BorderRadius.only(
           bottomLeft : Radius.circular(28),
           bottomRight: Radius.circular(28),
         ),
@@ -1024,27 +1174,29 @@ class _EmptyState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const Center(
+    return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Text('💊', style: TextStyle(fontSize: 64)),
-          SizedBox(height: 16),
+          const Text('💊', style: TextStyle(fontSize: 64)),
+          const SizedBox(height: 16),
           Text(
             'No medicines added yet',
             style: TextStyle(
               fontSize  : 22,
               fontWeight: FontWeight.w700,
-              color     : kTextPrimary,
+              color     : AppColors.textPrimary(context),
             ),
           ),
-          SizedBox(height: 8),
+          const SizedBox(height: 8),
           Text(
             'Tap + Add Medicine to get started',
-            style: TextStyle(fontSize: 16, color: kTextSecondary),
+            style: TextStyle(fontSize: 16, color: AppColors.textSecondary(context)),
           ),
         ],
       ),
     );
   }
 }
+
+// AiAssistantScreen is now in lib/screens/ai_assistant_screen.dart
